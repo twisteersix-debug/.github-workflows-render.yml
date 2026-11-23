@@ -1,0 +1,82 @@
+name: Render Video
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/render.yml'
+      - 'clips/**'
+      - 'voiceover/**'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'test = buat klip contoh otomatis, real = pakai klip di clips/'
+        required: true
+        default: 'test'
+        type: choice
+        options: [test, real]
+      output:
+        description: 'Nama file video hasil'
+        required: false
+        default: 'video-final.mp4'
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cek ffmpeg
+        run: ffmpeg -version | head -1
+
+      - name: Siapkan media uji (mode test)
+        if: ${{ inputs.mode == 'test' || inputs.mode == '' }}
+        run: |
+          mkdir -p clips voiceover
+          for i in 1 2 3; do
+            ffmpeg -y -f lavfi -i testsrc2=size=720x1280:rate=24:duration=3 \
+              -f lavfi -i sine=frequency=$((400 + i * 100)):duration=3 \
+              -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac clips/scene0${i}.mp4
+          done
+          ffmpeg -y -f lavfi -i sine=frequency=660:duration=9 \
+            -c:a libmp3lame voiceover/voiceover.mp3
+          ls -lh clips voiceover
+
+      - name: Render (gabung klip + voiceover)
+        run: |
+          set -e
+          MODE="${{ inputs.mode || 'test' }}"
+          OUT="${{ inputs.output || 'video-final.mp4' }}"
+          echo "Mode: $MODE, output: $OUT"
+          if ! ls clips/*.mp4 >/dev/null 2>&1; then
+            echo "Tidak ada klip di clips/*.mp4 — unggah klip dulu, lalu jalankan ulang."
+            exit 1
+          fi
+          ls clips/*.mp4 | sort > /tmp/list.txt
+          : > concat.txt
+          while read -r f; do echo "file '$f'" >> concat.txt; done < /tmp/list.txt
+          cat concat.txt
+          if [ -f voiceover/voiceover.mp3 ]; then
+            echo "Voiceover ditemukan: voiceover/voiceover.mp3"
+            ffmpeg -y -f concat -safe 0 -i concat.txt -i voiceover/voiceover.mp3 \
+              -filter_complex "[0:v]scale=1080:1920,fps=24,format=yuv420p[v]" \
+              -map "[v]" -map 1:a -c:v libx264 -c:a aac -shortest "$OUT"
+          else
+            echo "Tidak ada voiceover — memakai audio asli klip."
+            ffmpeg -y -f concat -safe 0 -i concat.txt \
+              -vf scale=1080:1920,fps=24 -c:v libx264 -pix_fmt yuv420p \
+              -map 0:v -map 0:a? -c:a aac "$OUT"
+          fi
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+          ls -lh "$OUT"
+          ffprobe -v error -show_entries format=duration,size \
+            -show_entries stream=codec_name,width,height,r_frame_rate \
+            -of default=noprint_wrappers=1 "$OUT"
+
+      - name: Unggah hasil
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-final
+          path: ${{ env.OUT }}
+          retention-days: 7
