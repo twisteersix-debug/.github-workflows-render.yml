@@ -25,13 +25,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Cek ffmpeg
-        run: ffmpeg -version | head -1
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
 
       - name: Siapkan media uji (mode test)
-        if: ${{ inputs.mode == 'test' || inputs.mode == '' }}
+        if: ${{ github.event_name == 'push' || inputs.mode == 'test' }}
         run: |
           mkdir -p clips voiceover
           for i in 1 2 3; do
@@ -75,7 +79,7 @@ jobs:
             -of default=noprint_wrappers=1 "$OUT"
 
       - name: Unggah hasil
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: video-final
           path: ${{ env.OUT }}
