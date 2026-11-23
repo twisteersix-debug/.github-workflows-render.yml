@@ -35,16 +35,35 @@ jobs:
           ffprobe -version | head -1
 
       - name: Siapkan media uji (mode test)
-        if: ${{ github.event_name == 'push' || inputs.mode == 'test' }}
         run: |
-          mkdir -p clips voiceover
-          for i in 1 2 3; do
-            ffmpeg -y -f lavfi -i testsrc2=size=720x1280:rate=24:duration=3 \
-              -f lavfi -i sine=frequency=$((400 + i * 100)):duration=3 \
-              -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac clips/scene0${i}.mp4
-          done
-          ffmpeg -y -f lavfi -i sine=frequency=660:duration=9 \
-            -c:a libmp3lame voiceover/voiceover.mp3
+          EVENT="${{ github.event_name }}"
+          MODE="${{ inputs.mode || '' }}"
+          if [ "$MODE" = "real" ]; then
+            echo "Mode real — memakai klip dan voiceover yang diunggah."
+          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$MODE" = "test" ]; then
+            echo "Mode test (manual) — membuat klip contoh."
+            rm -f clips/*.mp4 voiceover/voiceover.mp3
+            mkdir -p clips voiceover
+            for i in 1 2 3; do
+              ffmpeg -y -f lavfi -i testsrc2=size=720x1280:rate=24:duration=3 \
+                -f lavfi -i sine=frequency=$((400 + i * 100)):duration=3 \
+                -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac clips/scene0${i}.mp4
+            done
+            ffmpeg -y -f lavfi -i sine=frequency=660:duration=9 \
+              -c:a libmp3lame voiceover/voiceover.mp3
+          elif ls clips/*.mp4 >/dev/null 2>&1; then
+            echo "Klip sudah ada di clips/ — memakai klip tersebut (mode real otomatis)."
+          else
+            echo "Belum ada klip — membuat klip contoh untuk uji pipeline."
+            mkdir -p clips voiceover
+            for i in 1 2 3; do
+              ffmpeg -y -f lavfi -i testsrc2=size=720x1280:rate=24:duration=3 \
+                -f lavfi -i sine=frequency=$((400 + i * 100)):duration=3 \
+                -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac clips/scene0${i}.mp4
+            done
+            ffmpeg -y -f lavfi -i sine=frequency=660:duration=9 \
+              -c:a libmp3lame voiceover/voiceover.mp3
+          fi
           ls -lh clips voiceover
 
       - name: Render (gabung klip + voiceover)
